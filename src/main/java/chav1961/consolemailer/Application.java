@@ -1,6 +1,5 @@
 package chav1961.consolemailer;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -11,22 +10,13 @@ import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.net.MalformedURLException;
-import java.net.Socket;
 import java.net.URI;
-import java.net.URL;
-import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Properties;
@@ -39,16 +29,9 @@ import javax.mail.Session;
 import javax.mail.Transport;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
-import com.sun.mail.util.BASE64EncoderStream;
 
 import chav1961.purelib.basic.ArgParser;
+import chav1961.purelib.basic.SocketUtils;
 import chav1961.purelib.basic.URIUtils;
 import chav1961.purelib.basic.Utils;
 import chav1961.purelib.basic.exceptions.CommandLineParametersException;
@@ -66,7 +49,7 @@ public class Application {
 
 	private static final Set<String>	SCHEMES = new HashSet<>();
 	// sendMail https://chav1961@smtp.mail.ru?pwd=*** -ks e:/chav1961/temp/ks.certs -kspwd sasa21 -receivers chav1961@mail.ru -theme "test message"
-	// getCertificate https://smtp.mail.ru -ks e:/chav1961/temp/ks.certs -kspwd sasa21
+	// getCertificate https://smtp.mail.ru:465 -ks e:/chav1961/temp/ks.certs -kspwd sasa21
 	static {
 		SCHEMES.add("http");
 		SCHEMES.add("https");
@@ -104,45 +87,21 @@ public class Application {
 			final String			host = serverUri.getHost();
 			final int				port = serverUri.getPort();
 
-	        if (!SCHEMES.contains(serverUri.getScheme())) {
-	        	throw new IOException("Invalid URI ["+serverUri+"] to get certificates: must be absoulte and can use 'http' or 'https' schemes only");
-	        }
-			
-	        final Hashtable<String, String[]> 	query = URIUtils.parseQuery(serverUri);	// zzz?type={SSL|TLSv1|...}
-			final TrustManager[]	emptyTrustManagers = new TrustManager[]{
-										       new X509TrustManager() {
-										           public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-										              return null;
-										            }
-										            public void checkClientTrusted(X509Certificate[] certs, String authType) { }
-										            public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-										        }
-										   };
-			final SSLContext 		sslContext = SSLContext.getInstance(query.getOrDefault("type",new String[] {"TLSv1"})[0]);
-			
-			sslContext.init(null, emptyTrustManagers,  new java.security.SecureRandom());
-			
-			final SSLSocketFactory	sslsocketfactory = (SSLSocketFactory) sslContext.getSocketFactory();
+			if (!SCHEMES.contains(serverUri.getScheme())) {
+				throw new IOException("Invalid URI ["+serverUri+"] to get certificates: must be absoulte and can use 'http' or 'https' schemes only");
+			}
 			
 			final KeyStore			ks = getKeyStore(parser);
-			boolean					hasNewCert = false;
 			
-			try(final SSLSocket 	sock = (SSLSocket)sslsocketfactory.createSocket(host,port == -1 ? 465 : port);) {
-				
-				for (Certificate item : sock.getSession().getPeerCertificates()) {
-					ks.setCertificateEntry(host+".cert",item);
-					hasNewCert = true;
-				}
-			}
-			if (hasNewCert) {
-				 final File			storeFile = new File(parser.getValue(KEYSTORE_KEY, String.class));
-				 final String		passwd = parser.getValue(KEYSTORE_PASSWORD_KEY, String.class);
+			if (SocketUtils.collectSSLCertificates(serverUri, ks)) {
+				final File			storeFile = new File(parser.getValue(KEYSTORE_KEY, String.class));
+				final String		passwd = parser.getValue(KEYSTORE_PASSWORD_KEY, String.class);
 					 
-				 try(final OutputStream	is = new FileOutputStream(storeFile)) {
-					 ks.store(is,passwd.toCharArray());
+				try(final OutputStream	os = new FileOutputStream(storeFile)) {
+					ks.store(os,passwd.toCharArray());
 				}
 			}
-		} catch (IOException | KeyStoreException | CertificateException | NoSuchAlgorithmException | KeyManagementException exc) {
+		} catch (IOException | KeyStoreException | CertificateException | NoSuchAlgorithmException exc) {
 			System.err.println("Error getting certificates: "+exc.getLocalizedMessage());
 			System.exit(129);
 		}
@@ -238,6 +197,9 @@ public class Application {
 				 else {
 					 throw new IOException("Mandatory key ["+KEYSTORE_PASSWORD_KEY+"] is missing in the command line string");
 				 }
+			 }
+			 else {
+				 keyStore.load(null,null);
 			 }
 			 return keyStore;
 		 } catch (NoSuchAlgorithmException | CertificateException | KeyStoreException exc) {
