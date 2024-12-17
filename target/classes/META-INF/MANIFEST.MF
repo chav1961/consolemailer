@@ -1,8 +1,0 @@
-Manifest-Version: 1.0
-Built-By: chav1961
-Build-Jdk: 13.0.1
-Class-Path: ./purelib-0.0.5.jar ./javax.mail-1.6.2.jar ./activation-1.1.
- jar
-Main-Class: chav1961.consolemailer.Application
-Created-By: Maven Integration for Eclipse
-
